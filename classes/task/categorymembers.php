@@ -102,13 +102,16 @@ class categorymembers extends \core\task\scheduled_task {
         foreach ($acleads as $aclead) {
 //            print_r($aclead);
             $useridnumber = $aclead->staffnumber;
-            $sqluser = "SELECT id FROM {user} WHERE username = '".$useridnumber."'";
+            $sqluser = "SELECT * FROM {user} WHERE username = '".$useridnumber."'";
 //            echo $sqluser;
             $userid = '';
             if ($DB->get_record_sql($sqluser)) {
                 $userid = $DB->get_record_sql($sqluser);  // User ID.
             }
-//            print_r ($userid);
+            print_r ($userid);
+            if ($userid->deleted == 1) {
+                continue;
+            }
 //            echo 'userid:'.$userid->id.' ';
             $role = $aclead->role;
             $roleid = '';
