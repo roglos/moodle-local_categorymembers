@@ -100,7 +100,7 @@ class categorymembers extends \core\task\scheduled_task {
         $acleads = $DB->get_records_sql($sql);
 //        print_r($acleads);
         foreach ($acleads as $aclead) {
-            print_r($aclead);
+//            print_r($aclead);
             $useridnumber = $aclead->staffnumber;
             $sqluser = "SELECT id FROM {user} WHERE username = '".$useridnumber."'";
 //            echo $sqluser;
@@ -117,7 +117,7 @@ class categorymembers extends \core\task\scheduled_task {
             }
 //            echo 'roleid:'.$roleid.' ';
             $catidnumber = $aclead->category_idnumber;
-            echo $catidnumber;
+//            echo $catidnumber;
             $categoryid = '';
             $catcontextid = '';
             if ($catid[$catidnumber]) {
@@ -127,7 +127,7 @@ class categorymembers extends \core\task\scheduled_task {
             }
 
             if ($userid !== '' && $roleid !== '' && $catcontextid !== '') {
-                echo '<p>' . $userid->id . ' : ' . $roleid . ' : ' . $catcontextid . '</p>';
+//                echo '<p>' . $userid->id . ' : ' . $roleid . ' : ' . $catcontextid . '</p>';
                 role_assign($roleid, $userid->id, $catcontextid);
             }
         }
