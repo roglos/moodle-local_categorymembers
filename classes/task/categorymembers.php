@@ -192,11 +192,13 @@ class categorymembers extends \core\task\scheduled_task {
                 // Get staff on course.
                 // Currently by Role - should be by capability: Future refinement.
                 $modids = implode(",", $modeditid); // Create list of module ids from array.
-                $enrolmentssql = "SELECT DISTINCT ue.id,ue.userid,ra.roleid FROM mdl_user_enrolments ue
+                $enrolmentssql = "SELECT DISTINCT ue.userid AS userid FROM mdl_user_enrolments ue
                                 JOIN mdl_enrol e ON e.id = ue.enrolid
                                 JOIN mdl_role_assignments ra ON ue.userid = ra.userid
                                 WHERE e.courseid = $c
                                 AND ra.roleid IN ('".$modids."')";
+
+
                 $enrolments = $DB->get_records_sql($enrolmentssql);
 
                 // Add staff to Subj Comm category.
