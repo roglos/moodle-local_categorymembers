@@ -24,10 +24,11 @@
 
 namespace local_categorymembers\task;
 use stdClass;
+use has_capability;
 
 defined('MOODLE_INTERNAL') || die();
 
-require_once ($CFG->libdir . '/accesslib.php');
+require_once($CFG->libdir . '/accesslib.php');
 
 /**
  * A scheduled task for scripted database integrations.
@@ -50,7 +51,7 @@ class categorymembers extends \core\task\scheduled_task {
      * Run sync.
      */
     public function execute() {
-        global $DB; // Ensures use of Moodle data-manipulation api.
+        global $CFG, $DB; // Ensures use of Moodle data-manipulation api.
 
         /* Get array of Role IDs.
          * ---------------------- */
@@ -60,91 +61,153 @@ class categorymembers extends \core\task\scheduled_task {
         foreach ($roleslist as $r) {
             $roles[$r->shortname] = $r->id;
         }
-//        print_r($roles);
 
         /* Get array of Category IDs.
          * -------------------------- */
         $categories = array();
         $categories = $DB->get_records('course_categories');
-//        print_r($categories);
         $catid = array();
+        $subcommcats = array();
+        $subcommidnum = array();
         foreach ($categories as $category) {
-            $catid[$category->idnumber] = $category->id;
+            $catid[$category->idnumber] = $category->id;  // Get ALL categories.
+            if (strpos($category->idnumber, 'SUB-') === false || strpos($category->idnumber, 'SUB-') > 0) {
+                continue;
+            }
+            $subcommcats[$category->idnumber] = $category->id;  // Get Subject Communities ids.
+            $subcommidnum[$category->id] = $category->idnumber;  // Get Subject Community idnumbers.
         }
-//        print_r ($catid);
 
-        /* Get array of contexts.
-         * ---------------------- */
+        /* Get array of contexts for categories.
+         * ------------------------------------- */
         $contexts = array();
         $sql = 'SELECT * FROM {context} WHERE contextlevel = ' . CONTEXT_COURSECAT;
         $contexts = $DB->get_records_sql($sql);
-//        print_r($contexts);
         $catcontext = array();
+        $subjcommcontext = array();
         foreach ($contexts as $context) {
-            $catcontext[$context->instanceid] = $context->id;
+            $catcontext[$context->instanceid] = $context->id; // Get context for ALL categories.
+            if (in_array($context->instanceid, $subcommcats)) { // Get context for Subject Communities.
+                $subjcommcontext[$context->instanceid] = $context->id;
+            }
         }
-//        print_r($catcontext);
 
-        /* Get Academic Leads from usr_data_categorymembers.
-         * ------------------------------------------------- */
+        /*****************************************************
+         * Get Academic Leads from usr_data_categorymembers. *
+         *****************************************************/
         $sourcetable1 = 'usr_data_categorymembers';
-        /***************************************
-         * usr_data_categorymembers            *
-         *     id                              *
-         *     staffnumber                     *
-         *     category_idnumber               *
-         *     role                            *
-         ***************************************/
         $sql = 'SELECT * FROM ' . $sourcetable1;
         $acleads = array();
         $acleads = $DB->get_records_sql($sql);
-//        print_r($acleads);
         foreach ($acleads as $aclead) {
-//            print_r($aclead);
+
             $useridnumber = $aclead->staffnumber;
             $sqluser = "SELECT * FROM {user} WHERE username = '".$useridnumber."'";
-//            echo $sqluser;
             $userid = '';
             if ($DB->get_record_sql($sqluser)) {
                 $userid = $DB->get_record_sql($sqluser);  // User ID.
             }
-            print_r ($userid);
             if ($userid->deleted == 1) {
                 continue;
             }
-//            echo 'userid:'.$userid->id.' ';
+
             $role = $aclead->role;
             $roleid = '';
             if ($roles[$role]) {
                 $roleid = $roles[$role];  // Role ID.
             }
-//            echo 'roleid:'.$roleid.' ';
+
             $catidnumber = $aclead->category_idnumber;
-//            echo $catidnumber;
             $categoryid = '';
             $catcontextid = '';
             if ($catid[$catidnumber]) {
                 $categoryid = $catid[$catidnumber];
-//                echo 'categoryid:'.$categoryid.' ';
-                $catcontextid = $catcontext[$categoryid];  //Context ID.
+                $catcontextid = $catcontext[$categoryid];  // Context ID.
             }
 
             if ($userid !== '' && $roleid !== '' && $catcontextid !== '') {
-//                echo '<p>' . $userid->id . ' : ' . $roleid . ' : ' . $catcontextid . '</p>';
                 role_assign($roleid, $userid->id, $catcontextid);
             }
         }
 
-        /* Get all Staff Users within a subject community.
-         * ----------------------------------------------- */
+        /***************************************************
+         * Get all Staff Users within a subject community. *
+         ***************************************************/
+        // Set constants for all staff.
+        // ----------------------------
+        // Get category non editing role id.
+        $catnonedrole = "categorynoneditor";
+        $catnoned = $DB->get_record('role', array('shortname' => $catnonedrole));
+        $catnonedid = $catnoned->id;
 
-        /* Get all course pages within a subject community or lower category. */
-        // Get all categories with an idnumber SUB.....
-        // FOREACH SUB parse for sub-categories
+        // Get module site editing roles.
+        $modeditselect = "shortname = 'moduletutor'
+                           OR shortname = 'co-editingtutor'
+                           OR shortname = 'editor'";
+        $modeditrole = $DB->get_records_select('role', $modeditselect);
+        // Split multidimensional array to get single array.
+        $modeditid = array();
+        foreach ($modeditrole as $me) {
+            $modeditid[] = $me->id;
+        }
 
+        // Set context levels.
+        $contextcatlevel = CONTEXT_COURSECAT;
+        $contextcourselevel = CONTEXT_COURSE;
 
-        /* Get all users with given role/capability?? OR
-         * Get all users with set email pattern. --PROBABLY THIS
-         */
+        // Get all courses in each subject community (and sub-category).
+        // -------------------------------------------------------------
+
+        // Loop through each subj comm.
+        foreach ($subcommcats as $sc) {  // For each subj comunity by id.
+            $staff = array();  // Reset staff list array for each subj comm loop.
+            $scomm = $DB->get_record('context', array('instanceid' => $sc, 'contextlevel' => $contextcatlevel));
+
+            $scidnumber = $subcommidnum[$sc]; // Get subj community idnumber
+            $sccont = $scomm->id;  // Get subj community context.
+
+            // Get all courses in subj comm category (and sub categories).
+            $course = array();
+            $crssql = "SELECT mdl_course.id
+                            FROM mdl_course
+                            JOIN mdl_course_categories
+                            WHERE mdl_course.category = mdl_course_categories.id
+                                AND (
+                                    mdl_course_categories.path LIKE '%/$sc/%'
+                                    OR mdl_course_categories.path LIKE '%/$sc'
+                                )";
+            $course[$sc] = $DB->get_records_sql($crssql);
+
+            // Get course ID and Context.
+            $crscontsql = array();
+            foreach ($course[$sc] as $crs) {
+                $c = $crs->id; // Get id of each course in subj comm.
+
+                $crscontsql = "SELECT * FROM mdl_context
+                                WHERE contextlevel = $contextcourselevel
+                                AND instanceid = $c";
+                $crscont = $DB->get_record_sql($crscontsql);
+                $cc = $crscont->id; // Get context of each course in subj comm.
+
+                // Get staff on course.
+                // Currently by Role - should be by capability: Future refinement.
+                $modids = implode(",", $modeditid); // Create list of module ids from array.
+                $enrolmentssql = "SELECT DISTINCT ue.id,ue.userid,ra.roleid FROM mdl_user_enrolments ue
+                                JOIN mdl_enrol e ON e.id = ue.enrolid
+                                JOIN mdl_role_assignments ra ON ue.userid = ra.userid
+                                WHERE e.courseid = $c
+                                AND ra.roleid IN ('".$modids."')";
+                $enrolments = $DB->get_records_sql($enrolmentssql);
+
+                // Add staff to Subj Comm category.
+                foreach ($enrolments as $enrols) {
+                    $user = $DB->get_record('user', array('id' => $enrols->userid));
+                    if (!$user->deleted) {  // Check status of user to ensure not deleted.
+                        role_assign($catnonedid, $enrols->userid, $sccont);
+                    }
+                }
+            }
+        }
+
     }
 }
